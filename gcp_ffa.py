@@ -3,6 +3,7 @@ import os
 import tempfile
 from werkzeug.utils import secure_filename
 from google.cloud import storage
+import json
 
 
 def upload_blob(bucket_name, source_file_name, destination_blob_name):
@@ -49,10 +50,11 @@ def cors_enabled_function(request):
         'Access-Control-Allow-Origin': '*'
     }
 
-    blob_urls = parse_multipart(request)
+    blob_url = parse_multipart(request)
+    objects = localize_objects_uri(blob_url)
 
 
-    return ('Done', 200, headers)
+    return (json.dumps(objects), 200, headers)
 
 
 # Helper function that computes the filepath to save files to
@@ -81,7 +83,7 @@ def parse_multipart(request):
         print('Processed field: %s' % field)
 
     # This code will process each file uploaded
-    blob_urls = []
+    blob_urls = None
     files = request.files.to_dict()
     for file_name, file in files.items():
         # Note: GCF may not keep files saved locally between invocations.
@@ -91,7 +93,6 @@ def parse_multipart(request):
         file.save(file_path)
         print('FILE PATH',file_path)
         blob_url = upload_blob("gcp-ffa-images", file_path, file_name)
-        blob_urls.append(blob_url)
         print('Processed file: %s' % file_name)
 
     # Clear temporary directory
@@ -117,7 +118,7 @@ def parse_multipart(request):
     #     'Access-Control-Allow-Origin': '*'
     # }
 
-    return blob_urls
+    return blob_url
 
 
 def localize_objects_uri(uri):
@@ -136,9 +137,18 @@ def localize_objects_uri(uri):
         image=image).localized_object_annotations
 
     print('Number of objects found: {}'.format(len(objects)))
+    object_list = []
     for object_ in objects:
+        list_item = {
+            'confidence': object_.score,
+            'name': object_.name,
+            'vertices': []
+        }
+
         print('\n{} (confidence: {})'.format(object_.name, object_.score))
         print('Normalized bounding polygon vertices: ')
         for vertex in object_.bounding_poly.normalized_vertices:
             print(' - ({}, {})'.format(vertex.x, vertex.y))
-    return objects
+            list_item['vertices'].append((vertex.x, vertex.y))
+        object_list.append(list_item)
+    return object_list
