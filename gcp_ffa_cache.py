@@ -25,9 +25,14 @@ def upload_blob(bucket_name, source_file_name, destination_blob_name):
     )
     return blob.public_url
 
+def check_blob_exists(bucket_name, file_name):
+    client = storage.Client()
+    bucket = client.get_bucket(bucket_name)
+    blob = bucket.blob(file_name)
+    return blob.exists()
 
 
-def cors_enabled_function(request):
+def main(request):
     # For more information about CORS and CORS preflight requests, see
     # https://developer.mozilla.org/en-US/docs/Glossary/Preflight_request
     # for more information.
@@ -52,9 +57,11 @@ def cors_enabled_function(request):
 
     blob_url = parse_multipart(request)
     objects = localize_objects_uri(blob_url)
+    labels = detect_labels_uri(blob_url)
     res_data = {
         'url': blob_url,
-        'objects': objects
+        'objects': objects,
+        'labels': labels
     }
 
     return (json.dumps(res_data), 200, headers)
@@ -123,6 +130,32 @@ def parse_multipart(request):
 
     return blob_url
 
+def detect_labels_uri(uri):
+    """Detects labels in the file located in Google Cloud Storage or on the
+    Web."""
+    from google.cloud import vision
+    client = vision.ImageAnnotatorClient()
+    image = vision.Image()
+    image.source.image_uri = uri
+
+    response = client.label_detection(image=image)
+    labels = response.label_annotations
+    print('Labels:')
+
+    label_list = []
+    for label in labels:
+        print(label.description, label.score)
+        label_list.append({
+            'name': label.description,
+            'score': label.score
+        })
+
+    if response.error.message:
+        raise Exception(
+            '{}\nFor more info on error messages, check: '
+            'https://cloud.google.com/apis/design/errors'.format(
+                response.error.message))
+    return label_list    
 
 def localize_objects_uri(uri):
     """Localize objects in the image on Google Cloud Storage
